@@ -11,6 +11,7 @@
 #include "esp_event_loop.h"
 #include "esp_wifi.h"
 #include "freertos/event_groups.h"
+#include "nvs_flash.h"
 
 #include "lwip/sockets.h"
 
@@ -21,6 +22,7 @@ static EventGroupHandle_t connection_event_group;
 static int udp_socket;
 
 void read_task(void *pvParameter);
+static void init_socket(void *pvParameter);
 static esp_err_t event_handler(void *ctx, system_event_t *event)
 {
     switch(event->event_id) {
@@ -42,11 +44,13 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 
 static void init_socket(void *pvParameter)
 {
+    ESP_LOGW(TAG, "init_socket");
     if ((udp_socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("cannot create socket");
         esp_restart();
     }
 
+    ESP_LOGW(TAG, "bind");
     struct sockaddr_in addr = {
             .sin_family = AF_INET,
             .sin_addr.s_addr = htonl(INADDR_ANY),
@@ -67,8 +71,9 @@ static void init_socket(void *pvParameter)
     inet_pton(AF_INET, "192.168.1.5", &server_addr.sin_addr.s_addr);
 
 
+    ESP_LOGW(TAG, "start sending");
     while(1) {
-        if (sendto(udp_socket, "test123", 7, 0, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+        if (sendto(udp_socket, "test123\n", 8, 0, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
             perror("sendto failed");
             esp_restart();
         }
@@ -149,6 +154,7 @@ void read_task(void *pvParameter)
 
 void app_main()
 {
+    nvs_flash_init();
     init_wifi();
 //    xTaskCreate(&read_task, "read_task", 8192, NULL, 5, NULL);
 }
