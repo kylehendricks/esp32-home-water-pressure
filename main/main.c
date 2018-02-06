@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/adc.h"
@@ -44,13 +45,11 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 
 static void init_socket(void *pvParameter)
 {
-    ESP_LOGW(TAG, "init_socket");
     if ((udp_socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("cannot create socket");
         esp_restart();
     }
 
-    ESP_LOGW(TAG, "bind");
     struct sockaddr_in addr = {
             .sin_family = AF_INET,
             .sin_addr.s_addr = htonl(INADDR_ANY),
@@ -64,16 +63,15 @@ static void init_socket(void *pvParameter)
 
     struct sockaddr_in server_addr = {
             .sin_family = AF_INET,
-            .sin_port = htons(9999),
-//            .sin_port = htons(8089),
+            .sin_port = htons(8089),
     };
 
     inet_pton(AF_INET, "192.168.1.5", &server_addr.sin_addr.s_addr);
 
 
-    ESP_LOGW(TAG, "start sending");
+    const char* testmsg = "weather,location=us-midwest temperature=82\n";
     while(1) {
-        if (sendto(udp_socket, "test123\n", 8, 0, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+        if (sendto(udp_socket, testmsg, strlen(testmsg), 0, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
             perror("sendto failed");
             esp_restart();
         }
