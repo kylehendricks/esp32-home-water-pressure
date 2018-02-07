@@ -1,41 +1,39 @@
 #include <stdio.h>
-#include <string.h>
+
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "driver/adc.h"
-#include <esp_adc_cal.h>
-#include "driver/gpio.h"
-#include "sdkconfig.h"
+#include "freertos/event_groups.h"
 
 #include "driver/spi_master.h"
 #include "esp_log.h"
 #include "esp_event_loop.h"
 #include "esp_wifi.h"
-#include "freertos/event_groups.h"
 #include "nvs_flash.h"
-
 #include "lwip/sockets.h"
+
+#define MCP3008_LSB (CONFIG_MCP3008_VREF / 1024.0f)
+#define MV_PER_PSI 29.2f
 
 static const char *TAG = "water_pressure";
 static const int WIFI_CONNECTED_BIT = BIT0;
 
 static EventGroupHandle_t connection_event_group;
-static int udp_socket;
+static int socket_fd;
+static spi_device_handle_t spi_handle;
+static struct sockaddr_in server_addr = {0};
 
-void read_task(void *pvParameter);
-static void send_data(void *pvParameter);
+static void read_task(void *pvParameter);
 static esp_err_t event_handler(void *ctx, system_event_t *event)
 {
     switch(event->event_id) {
         case SYSTEM_EVENT_STA_GOT_IP:
             xEventGroupSetBits(connection_event_group, WIFI_CONNECTED_BIT);
-            xTaskCreate(&send_data, "send_data", 8192, NULL, 5, NULL);
 
             break;
         case SYSTEM_EVENT_STA_DISCONNECTED:
             xEventGroupClearBits(connection_event_group, WIFI_CONNECTED_BIT);
             ESP_LOGW(TAG, "Disconnected from wifi");
 
+            ESP_ERROR_CHECK( esp_wifi_connect() );
             break;
         default:
             break;
@@ -43,29 +41,10 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
     return ESP_OK;
 }
 
-static void send_data(void *pvParameter)
-{
-    struct sockaddr_in server_addr = {
-            .sin_family = AF_INET,
-            .sin_port = htons(8089),
-    };
-
-    inet_pton(AF_INET, "192.168.1.5", &server_addr.sin_addr.s_addr);
-
-    const char* testmsg = "weather,location=us-midwest temperature=82\n";
-    while(1) {
-        if (sendto(udp_socket, testmsg, strlen(testmsg), 0, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
-            perror("sendto failed");
-            esp_restart();
-        }
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-    }
-}
-
 static void init_socket()
 {
-    if ((udp_socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("cannot create socket");
+    if ((socket_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        ESP_LOGE(TAG, "Failed to create socket");
         esp_restart();
     }
 
@@ -75,8 +54,16 @@ static void init_socket()
             .sin_port = htons(0),
     };
 
-    if (bind(udp_socket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("bind failed");
+    if (bind(socket_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        ESP_LOGE(TAG, "Failed bind socket");
+        esp_restart();
+    }
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(CONFIG_INFLUXDB_UDP_PORT);
+
+    if (inet_pton(AF_INET, CONFIG_INFLUXDB_IP, &server_addr.sin_addr.s_addr) != 1) {
+        ESP_LOGE(TAG, "Failed encode ip address");
         esp_restart();
     }
 }
@@ -102,11 +89,8 @@ static void init_wifi()
     ESP_ERROR_CHECK( esp_wifi_connect() );
 }
 
-void read_task(void *pvParameter)
+static void init_spi()
 {
-    spi_device_handle_t deviceHandle;
-    float val;
-
     spi_bus_config_t busConfig = {
             .mosi_io_num = 23,
             .miso_io_num = 19,
@@ -127,35 +111,56 @@ void read_task(void *pvParameter)
             .cs_ena_posttrans=3,
     };
 
-    ESP_ERROR_CHECK(spi_bus_add_device(VSPI_HOST, &deviceConfig, &deviceHandle));
+    ESP_ERROR_CHECK(spi_bus_add_device(VSPI_HOST, &deviceConfig, &spi_handle));
+}
+
+static void send_measurement(float psi)
+{
+    static char line_buffer[64];
+    int length = sprintf(line_buffer, "water_psi,location=pressure_tank pressure=%3f\n", psi);
+
+    if (length < 0) {
+        ESP_LOGE(TAG, "Error formatting influxdb line");
+        esp_restart();
+    }
+
+    if (sendto(socket_fd, line_buffer, (size_t) length, 0, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+        ESP_LOGW(TAG, "Failed sending influxdb line (sendto)");
+    }
+}
+
+static void read_task(void *pvParameter)
+{
     spi_transaction_t trans = {
             .flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA,
-            .tx_data[0] = 0x01,
-            .tx_data[1] = 0x80,
+            .tx_data[0] = 0x01, // Start bit
+            .tx_data[1] = 0x80, // (MCP3008) Single Mode / Channel 0
             .rxlength = 24,
             .length = 24,
     };
+    float sensor_mv;
+    float psi;
 
-    while (1)
-    {
-        ESP_LOGW(TAG, "TRANS: %#04x %#04x %#04x %#04x\n", trans.tx_data[0], trans.tx_data[1], trans.tx_data[2], trans.tx_data[3]);
-        ESP_ERROR_CHECK(spi_device_transmit(deviceHandle, &trans));
+    while (1) {
+        ESP_ERROR_CHECK(spi_device_transmit(spi_handle, &trans));
+        sensor_mv = (trans.rx_data[2] | trans.rx_data[1] << 8) * MCP3008_LSB; // to mv
 
-        val = (trans.rx_data[2] | trans.rx_data[1] << 8) * 3.19f;
+        if (sensor_mv >= CONFIG_SENSOR_V_MIN) {
+            psi = (sensor_mv - CONFIG_SENSOR_V_MIN) / MV_PER_PSI;
 
-        ESP_LOGW(TAG, "RECV: %#04x %#04x %#04x %#04x\n", trans.rx_data[0], trans.rx_data[1], trans.rx_data[2], trans.rx_data[3]);
-        ESP_LOGW(TAG, "%3f mV\n", val);
+            send_measurement(psi);
+        }
 
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(CONFIG_SENSOR_READING_INTERVAL / portTICK_PERIOD_MS);
     }
-
-    vTaskDelete(NULL);
 }
 
 void app_main()
 {
-    init_socket();
     nvs_flash_init();
+    init_spi();
     init_wifi();
-//    xTaskCreate(&read_task, "read_task", 8192, NULL, 5, NULL);
+    init_socket();
+
+    xTaskCreate(&read_task, "read_task", 8192, NULL, 5, NULL);
 }

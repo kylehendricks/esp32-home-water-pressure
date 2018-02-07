@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.9)
 project(esp32_salt_level_sensor_2)
 
-set(IDF_PATH /home/khendricks/dev/esp32/tools/esp-idf)
+set(IDF_PATH /Users/kylehendricks/source/esp32/esp-idf)
 
 include_directories(
         build/include

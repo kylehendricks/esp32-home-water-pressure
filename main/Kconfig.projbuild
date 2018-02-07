@@ -45,3 +45,39 @@ config MQTT_LWT_TOPIC
         Topic to use when sending the MQTT "Last Will"
 
 endmenu
+
+menu "Sensor Configuration"
+
+config MCP3008_VREF
+    int "MCP3008 Vref"
+    default 3300
+    help
+        MCP3008 Vref voltage (mV)
+
+config SENSOR_V_MIN
+    int "Minimum Sensor Voltage"
+    default 366
+    help
+        The minimum voltage that the sensor should read (mV)
+
+config SENSOR_READING_INTERVAL
+    int "Sensor Reading Interval"
+    default 1000
+    help
+        The sensor reading interval (ms)
+
+endmenu
+
+menu "InfluxDB Configuration"
+
+config INFLUXDB_IP
+    string "InfluxDB IP"
+    help
+        IP of InfluxDB host
+
+config INFLUXDB_UDP_PORT
+    int "InfluxDB UDP Port"
+    help
+        Port of InfluxDB UDP input
+
+endmenu
