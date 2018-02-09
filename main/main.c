@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -143,7 +144,7 @@ static void read_task(void *pvParameter)
 
     while (1) {
         ESP_ERROR_CHECK(spi_device_transmit(spi_handle, &trans));
-        sensor_mv = (trans.rx_data[2] | trans.rx_data[1] << 8) * MCP3008_LSB; // to mv
+        sensor_mv = (trans.rx_data[2] | (trans.rx_data[1] & 0x03) << 8) * MCP3008_LSB; // to mv
 
         if (sensor_mv >= CONFIG_SENSOR_V_MIN) {
             psi = (sensor_mv - CONFIG_SENSOR_V_MIN) / MV_PER_PSI;
