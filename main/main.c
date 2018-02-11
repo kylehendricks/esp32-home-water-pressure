@@ -93,9 +93,9 @@ static void init_wifi()
 static void init_spi()
 {
     spi_bus_config_t busConfig = {
-            .mosi_io_num = 23,
-            .miso_io_num = 19,
-            .sclk_io_num = 18,
+            .mosi_io_num = GPIO_NUM_18,
+            .miso_io_num = GPIO_NUM_19,
+            .sclk_io_num = GPIO_NUM_23,
             .quadwp_io_num = -1,
             .quadhd_io_num = -1,
             .max_transfer_sz = 4096,
@@ -105,7 +105,7 @@ static void init_spi()
 
     spi_device_interface_config_t deviceConfig = {
             .clock_speed_hz = 1 * 1000 * 1000,
-            .spics_io_num = 5,
+            .spics_io_num = GPIO_NUM_5,
             .queue_size = 3,
             .mode = 0,
             .duty_cycle_pos=128,
