@@ -66,6 +66,41 @@ config SENSOR_READING_INTERVAL
     help
         The sensor reading interval (ms)
 
+config ADC_MV_PER_PSI_100
+    int "Calculated mV per psi (100x)"
+    help
+        The calculated mV per psi from the ratiometric pressure transducer (100x)
+
+config PIN_MCP3008_MOSI
+    int "GPIO pin for MCP3008 MOSI"
+    range 0 34
+    help
+        The pin used to connect to the MCP3008 MOSI pin
+
+config PIN_MCP3008_MISO
+    int "GPIO pin for MCP3008 MISO"
+    range 0 34
+    help
+        The pin used to connect to the MCP3008 MISO pin
+
+config PIN_MCP3008_CLK
+    int "GPIO pin for MCP3008 Clock"
+    range 0 34
+    help
+        The pin used to connect to the MCP3008 clock pin
+
+config PIN_MCP3008_CS
+    int "GPIO pin for MCP3008 Chip Select"
+    range 0 34
+    help
+        The pin used to connect to the MCP3008 CS pin
+
+config PIN_WIFI_STATUS_LED
+    int "GPIO pin for WiFi status LED"
+    range 0 34
+    help
+        The pin used to connect to a WiFi status LED
+
 endmenu
 
 menu "InfluxDB Configuration"
