@@ -12,7 +12,12 @@
 #include "lwip/sockets.h"
 
 #define MCP3008_LSB (CONFIG_MCP3008_VREF / 1024.0f)
-#define MV_PER_PSI 29.2f
+#define MV_PER_PSI 26.92f
+#define SPI_MOSI_PIN GPIO_NUM_18
+#define SPI_MISO_PIN GPIO_NUM_19
+#define SPI_CLOCK_PIN GPIO_NUM_23
+#define SPI_CS_PIN GPIO_NUM_5
+#define WIFI_LED_PIN GPIO_NUM_2
 
 static const char *TAG = "water_pressure";
 static const int WIFI_CONNECTED_BIT = BIT0;
@@ -28,10 +33,12 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
     switch(event->event_id) {
         case SYSTEM_EVENT_STA_GOT_IP:
             xEventGroupSetBits(connection_event_group, WIFI_CONNECTED_BIT);
+            gpio_set_level(WIFI_LED_PIN, 1);
 
             break;
         case SYSTEM_EVENT_STA_DISCONNECTED:
             xEventGroupClearBits(connection_event_group, WIFI_CONNECTED_BIT);
+            gpio_set_level(WIFI_LED_PIN, 0);
             ESP_LOGW(TAG, "Disconnected from wifi");
 
             ESP_ERROR_CHECK( esp_wifi_connect() );
@@ -93,9 +100,9 @@ static void init_wifi()
 static void init_spi()
 {
     spi_bus_config_t busConfig = {
-            .mosi_io_num = GPIO_NUM_18,
-            .miso_io_num = GPIO_NUM_19,
-            .sclk_io_num = GPIO_NUM_23,
+            .mosi_io_num = SPI_MOSI_PIN,
+            .miso_io_num = SPI_MISO_PIN,
+            .sclk_io_num = SPI_CLOCK_PIN,
             .quadwp_io_num = -1,
             .quadhd_io_num = -1,
             .max_transfer_sz = 4096,
@@ -105,7 +112,7 @@ static void init_spi()
 
     spi_device_interface_config_t deviceConfig = {
             .clock_speed_hz = 1 * 1000 * 1000,
-            .spics_io_num = GPIO_NUM_5,
+            .spics_io_num = SPI_CS_PIN,
             .queue_size = 3,
             .mode = 0,
             .duty_cycle_pos=128,
@@ -159,6 +166,11 @@ static void read_task(void *pvParameter)
 void app_main()
 {
     nvs_flash_init();
+
+    gpio_pad_select_gpio(WIFI_LED_PIN);
+    gpio_set_direction(WIFI_LED_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(WIFI_LED_PIN, 0);
+
     init_spi();
     init_wifi();
     init_socket();
