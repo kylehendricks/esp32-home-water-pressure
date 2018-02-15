@@ -28,12 +28,12 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 {
     switch(event->event_id) {
         case SYSTEM_EVENT_STA_GOT_IP:
-            xEventGroupSetBits(connection_event_group, WIFI_CONNECTED_BIT);
-            gpio_set_level((gpio_num_t) CONFIG_PIN_WIFI_STATUS_LED, 1);
-
             if (!influxdb_addrinfo) {
                 init_socket();
             }
+
+            xEventGroupSetBits(connection_event_group, WIFI_CONNECTED_BIT);
+            gpio_set_level((gpio_num_t) CONFIG_PIN_WIFI_STATUS_LED, 1);
 
             break;
         case SYSTEM_EVENT_STA_DISCONNECTED:
@@ -65,11 +65,6 @@ static void init_socket()
 
     if ((socket_fd = socket(influxdb_addrinfo->ai_family, influxdb_addrinfo->ai_socktype, influxdb_addrinfo->ai_protocol)) < 0) {
         ESP_LOGE(TAG, "Failed to create socket");
-        esp_restart();
-    }
-
-    if (bind(socket_fd, influxdb_addrinfo->ai_addr, influxdb_addrinfo->ai_addrlen) < 0) {
-        ESP_LOGE(TAG, "Failed bind socket");
         esp_restart();
     }
 }
@@ -146,6 +141,11 @@ static void read_task(void *pvParameter)
     };
     float sensor_mv;
     float psi;
+
+    while (!(xEventGroupGetBits(connection_event_group) & WIFI_CONNECTED_BIT))
+    {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
     while (1) {
         ESP_ERROR_CHECK(spi_device_transmit(spi_handle, &trans));
