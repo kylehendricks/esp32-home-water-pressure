@@ -55,6 +55,7 @@ static void init_socket()
             .ai_family = AF_UNSPEC,
             .ai_socktype = SOCK_DGRAM,
             .ai_flags = AI_ADDRCONFIG,
+            .ai_protocol = IPPROTO_UDP,
     };
 
     int err;
