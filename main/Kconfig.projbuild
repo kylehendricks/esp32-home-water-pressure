@@ -105,13 +105,13 @@ endmenu
 
 menu "InfluxDB Configuration"
 
-config INFLUXDB_IP
-    string "InfluxDB IP"
+config INFLUXDB_HOST
+    string "InfluxDB Host"
     help
-        IP of InfluxDB host
+        The InfluxDB host
 
 config INFLUXDB_UDP_PORT
-    int "InfluxDB UDP Port"
+    string "InfluxDB UDP Port"
     help
         Port of InfluxDB UDP input
 

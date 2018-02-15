@@ -11,11 +11,8 @@
 #include "lwip/sockets.h"
 #include "netdb.h"
 
-#define STR(a) #a
-#define INFLUXDB_PORT_STR STR(CONFIG_INFLUXDB_UDP_PORT)
 #define MCP3008_LSB (CONFIG_MCP3008_VREF / 1024.0f)
 #define MV_PER_PSI (CONFIG_ADC_MV_PER_PSI_100 / 100.0f)
-
 
 static const char *TAG = "water_pressure";
 static const int WIFI_CONNECTED_BIT = BIT0;
@@ -23,8 +20,9 @@ static const int WIFI_CONNECTED_BIT = BIT0;
 static EventGroupHandle_t connection_event_group;
 static int socket_fd;
 static spi_device_handle_t spi_handle;
-static struct addrinfo *influxdb_addrinfo;
+static struct addrinfo *influxdb_addrinfo = NULL;
 
+static void init_socket();
 static void read_task(void *pvParameter);
 static esp_err_t event_handler(void *ctx, system_event_t *event)
 {
@@ -32,6 +30,10 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
         case SYSTEM_EVENT_STA_GOT_IP:
             xEventGroupSetBits(connection_event_group, WIFI_CONNECTED_BIT);
             gpio_set_level((gpio_num_t) CONFIG_PIN_WIFI_STATUS_LED, 1);
+
+            if (!influxdb_addrinfo) {
+                init_socket();
+            }
 
             break;
         case SYSTEM_EVENT_STA_DISCONNECTED:
@@ -56,7 +58,7 @@ static void init_socket()
     };
 
     int err;
-    if ((err = getaddrinfo(CONFIG_INFLUXDB_IP, INFLUXDB_PORT_STR, &hints, &influxdb_addrinfo)) != 0) {
+    if ((err = getaddrinfo(CONFIG_INFLUXDB_HOST, CONFIG_INFLUXDB_UDP_PORT, &hints, &influxdb_addrinfo)) != 0) {
         ESP_LOGE(TAG, "DNS lookup failed err=%d", err);
         esp_restart();
     }
@@ -135,8 +137,6 @@ static void send_measurement(float psi)
 
 static void read_task(void *pvParameter)
 {
-    init_socket();
-
     spi_transaction_t trans = {
             .flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA,
             .tx_data[0] = 0x01, // Start bit
