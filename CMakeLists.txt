@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.9)
-project(esp32_salt_level_sensor_2)
+project(home_water_pressure_sensor)
 
 set(IDF_PATH /Users/kylehendricks/source/esp32/esp-idf)
 
@@ -22,7 +22,7 @@ include_directories(
         ${IDF_PATH}/components/spiffs/include
 )
 
-add_executable(esp32_salt_level_sensor_2
+add_executable(home_water_pressure
         #components/esp32mqtt/mqtt.c
         #components/esp32mqtt/mqtt_msg.c
         #components/esp32mqtt/ringbuf.c

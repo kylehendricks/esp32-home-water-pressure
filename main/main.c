@@ -9,6 +9,7 @@
 #include "esp_wifi.h"
 #include "nvs_flash.h"
 #include "lwip/sockets.h"
+#include "netdb.h"
 
 #define MCP3008_LSB (CONFIG_MCP3008_VREF / 1024.0f)
 #define MV_PER_PSI (CONFIG_ADC_MV_PER_PSI_100 / 100.0f)
@@ -17,15 +18,19 @@ static const char *TAG = "water_pressure";
 static const int WIFI_CONNECTED_BIT = BIT0;
 
 static EventGroupHandle_t connection_event_group;
-static int socket_fd;
+static int socket_fd = NULL;
 static spi_device_handle_t spi_handle;
-static struct sockaddr_in server_addr = {0};
 
+static void init_socket();
 static void read_task(void *pvParameter);
 static esp_err_t event_handler(void *ctx, system_event_t *event)
 {
     switch(event->event_id) {
         case SYSTEM_EVENT_STA_GOT_IP:
+            if (!socket_fd) {
+                init_socket();
+            }
+
             xEventGroupSetBits(connection_event_group, WIFI_CONNECTED_BIT);
             gpio_set_level((gpio_num_t) CONFIG_PIN_WIFI_STATUS_LED, 1);
 
@@ -45,29 +50,31 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 
 static void init_socket()
 {
-    if ((socket_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    const struct addrinfo hints = {
+            .ai_family = AF_UNSPEC,
+            .ai_socktype = SOCK_DGRAM,
+            .ai_flags = AI_ADDRCONFIG,
+            .ai_protocol = IPPROTO_UDP,
+    };
+    static struct addrinfo *res = NULL;
+
+    int err;
+    if ((err = getaddrinfo(CONFIG_INFLUXDB_HOST, CONFIG_INFLUXDB_UDP_PORT, &hints, &res)) != 0) {
+        ESP_LOGE(TAG, "DNS lookup failed err=%d", err);
+        esp_restart();
+    }
+
+    if ((socket_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
         ESP_LOGE(TAG, "Failed to create socket");
         esp_restart();
     }
 
-    struct sockaddr_in addr = {
-            .sin_family = AF_INET,
-            .sin_addr.s_addr = htonl(INADDR_ANY),
-            .sin_port = htons(0),
-    };
-
-    if (bind(socket_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        ESP_LOGE(TAG, "Failed bind socket");
+    if (connect(socket_fd, res->ai_addr, res->ai_addrlen) < 0) {
+        ESP_LOGE(TAG, "Failed to connect socket");
         esp_restart();
     }
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(CONFIG_INFLUXDB_UDP_PORT);
-
-    if (inet_pton(AF_INET, CONFIG_INFLUXDB_IP, &server_addr.sin_addr.s_addr) != 1) {
-        ESP_LOGE(TAG, "Failed encode ip address");
-        esp_restart();
-    }
+    freeaddrinfo(res);
 }
 
 static void init_wifi()
@@ -126,7 +133,7 @@ static void send_measurement(float psi)
         esp_restart();
     }
 
-    if (sendto(socket_fd, line_buffer, (size_t) length, 0, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+    if (send(socket_fd, line_buffer, (size_t) length, 0) < 0) {
         ESP_LOGW(TAG, "Failed sending influxdb line (sendto)");
     }
 }
@@ -142,6 +149,11 @@ static void read_task(void *pvParameter)
     };
     float sensor_mv;
     float psi;
+
+    while (!(xEventGroupGetBits(connection_event_group) & WIFI_CONNECTED_BIT))
+    {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
     while (1) {
         ESP_ERROR_CHECK(spi_device_transmit(spi_handle, &trans));
@@ -167,7 +179,6 @@ void app_main()
 
     init_spi();
     init_wifi();
-    init_socket();
 
     xTaskCreate(&read_task, "read_task", 8192, NULL, 5, NULL);
 }
