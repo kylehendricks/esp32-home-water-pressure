@@ -18,9 +18,8 @@ static const char *TAG = "water_pressure";
 static const int WIFI_CONNECTED_BIT = BIT0;
 
 static EventGroupHandle_t connection_event_group;
-static int socket_fd;
+static int socket_fd = NULL;
 static spi_device_handle_t spi_handle;
-static struct addrinfo *influxdb_addrinfo = NULL;
 
 static void init_socket();
 static void read_task(void *pvParameter);
@@ -28,7 +27,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 {
     switch(event->event_id) {
         case SYSTEM_EVENT_STA_GOT_IP:
-            if (!influxdb_addrinfo) {
+            if (!socket_fd) {
                 init_socket();
             }
 
@@ -57,17 +56,25 @@ static void init_socket()
             .ai_flags = AI_ADDRCONFIG,
             .ai_protocol = IPPROTO_UDP,
     };
+    static struct addrinfo *res = NULL;
 
     int err;
-    if ((err = getaddrinfo(CONFIG_INFLUXDB_HOST, CONFIG_INFLUXDB_UDP_PORT, &hints, &influxdb_addrinfo)) != 0) {
+    if ((err = getaddrinfo(CONFIG_INFLUXDB_HOST, CONFIG_INFLUXDB_UDP_PORT, &hints, &res)) != 0) {
         ESP_LOGE(TAG, "DNS lookup failed err=%d", err);
         esp_restart();
     }
 
-    if ((socket_fd = socket(influxdb_addrinfo->ai_family, influxdb_addrinfo->ai_socktype, influxdb_addrinfo->ai_protocol)) < 0) {
+    if ((socket_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
         ESP_LOGE(TAG, "Failed to create socket");
         esp_restart();
     }
+
+    if (connect(socket_fd, res->ai_addr, res->ai_addrlen) < 0) {
+        ESP_LOGE(TAG, "Failed to connect socket");
+        esp_restart();
+    }
+
+    freeaddrinfo(res);
 }
 
 static void init_wifi()
@@ -126,7 +133,7 @@ static void send_measurement(float psi)
         esp_restart();
     }
 
-    if (sendto(socket_fd, line_buffer, (size_t) length, 0, influxdb_addrinfo->ai_addr, influxdb_addrinfo->ai_addrlen) < 0) {
+    if (send(socket_fd, line_buffer, (size_t) length, 0) < 0) {
         ESP_LOGW(TAG, "Failed sending influxdb line (sendto)");
     }
 }
